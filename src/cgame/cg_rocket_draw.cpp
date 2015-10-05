@@ -39,6 +39,7 @@ Maryland 20850 USA.
 #include <Rocket/Core/ElementInstancerGeneric.h>
 #include <Rocket/Core/Factory.h>
 #include <Rocket/Core/ElementText.h>
+#include <Rocket/Core/StyleSheetKeywords.h>
 
 static void CG_GetRocketElementColor( vec4_t color )
 {
@@ -53,8 +54,7 @@ static void CG_GetRocketElementBGColor( vec4_t bgColor )
 static void CG_GetRocketElementRect( rectDef_t *rect )
 {
 	Rocket_GetElementAbsoluteOffset( &rect->x, &rect->y );
-	Rocket_GetProperty( "width", &rect->w, sizeof( rect->w ), ROCKET_FLOAT );
-	Rocket_GetProperty( "height", &rect->h, sizeof( rect->h ), ROCKET_FLOAT );
+	Rocket_GetElementDimensions( &rect->w, &rect->h );
 
 	// Convert from absolute monitor coords to a virtual 640x480 coordinate system
 	rect->x = ( rect->x / cgs.glconfig.vidWidth ) * 640;
@@ -146,8 +146,9 @@ public:
 		auto offset = GetAbsoluteOffset();
 		rect.x = offset.x;
 		rect.y = offset.y;
-		rect.w = dimensions.x;
-		rect.h = dimensions.y;
+		auto size = GetBox().GetSize();
+		rect.w = size.x;
+		rect.h = size.y;
 
 		// Convert from absolute monitor coords to a virtual 640x480 coordinate system
 		rect.x = ( rect.x / cgs.glconfig.vidWidth ) * 640;
@@ -981,7 +982,6 @@ public:
 
 	}
 private:
-	Rocket::Core::Element* img;
 	int weapon;
 	bool isNoAmmo;
 };
@@ -2076,6 +2076,108 @@ private:
 	Rocket::Core::String owner;
 };
 
+class PredictedMineEfficiencyElement : public HudElement
+{
+public:
+	PredictedMineEfficiencyElement( const Rocket::Core::String& tag ) :
+			HudElement( tag, ELEMENT_BOTH, false ),
+			shouldBeVisible( true ),
+			display( -1 ),
+			pluralSuffix{ { BA_A_LEECH, "es" }, { BA_H_DRILL, "s" } }
+	{
+
+	}
+
+	void OnPropertyChange( const Rocket::Core::PropertyNameList& changed_properties )
+	{
+		HudElement::OnPropertyChange( changed_properties );
+		if ( display < 0 && changed_properties.find( "display" ) != changed_properties.end() )
+		{
+			display = GetProperty<int>( "display" );
+		}
+	}
+
+	void DoOnUpdate()
+	{
+		playerState_t  *ps = &cg.snap->ps;
+		buildable_t   buildable = ( buildable_t )( ps->stats[ STAT_BUILDABLE ] & SB_BUILDABLE_MASK );
+
+		// If display hasn't been set yet explicitly, assume display is block
+		if ( display < 0 )
+		{
+			display = Rocket::Core::DISPLAY_BLOCK;
+		}
+
+		if ( buildable != BA_H_DRILL && buildable != BA_A_LEECH )
+		{
+			if ( IsVisible() && shouldBeVisible )
+			{
+				SetProperty("display",
+							Rocket::Core::Property(Rocket::Core::DISPLAY_NONE,
+												   Rocket::Core::Property::KEYWORD));
+				SetInnerRML( "" );
+				shouldBeVisible = false;
+				// Pick impossible value
+				lastDelta = -999;
+			}
+		}
+		else
+		{
+			if ( !IsVisible() && !shouldBeVisible )
+			{
+				SetProperty( "display", Rocket::Core::Property( display,
+															   Rocket::Core::Property::KEYWORD ) );
+				shouldBeVisible = true;
+			}
+		}
+	}
+
+	void DoOnRender()
+	{
+		if ( shouldBeVisible )
+		{
+			playerState_t  *ps = &cg.snap->ps;
+			buildable_t   buildable = ( buildable_t )( ps->stats[ STAT_BUILDABLE ] & SB_BUILDABLE_MASK );
+			const char *msg = nullptr;
+			char color;
+			int  delta = ps->stats[ STAT_PREDICTION ];
+
+			if ( lastDelta != delta )
+			{
+				if ( delta < 0 )
+				{
+					color = COLOR_RED;
+					// Error sign
+					msg = va( "<span class='material-icon error'>&#xE000;</span> You are losing efficiency. Build the %s%s further apart for more efficiency.", BG_Buildable( buildable )->humanName, pluralSuffix[ buildable ].c_str() );
+				}
+				else if ( delta < 10 )
+				{
+					color = COLOR_ORANGE;
+					// Warning sign
+					msg = va( "<span class='material-icon warning'>&#xE002;</span> Minimal efficency gain. Build the %s%s further apart for more efficiency.", BG_Buildable( buildable )->humanName, pluralSuffix[ buildable ].c_str() );
+				}
+				else if ( delta < 50 )
+				{
+					color = COLOR_YELLOW;
+					msg = va( "<span class='material-icon warning'>&#xE002;</span> Average efficency gain. Build the %s%s further apart for more efficiency.", BG_Buildable( buildable )->humanName, pluralSuffix[ buildable ].c_str() );
+				}
+				else
+				{
+					color = COLOR_GREEN;
+				}
+
+				SetInnerRML( va("EFFICIENCY: %s%s%s", CG_Rocket_QuakeToRML( va( "^%c%+d%%", color, delta ) ), msg ? "<br/>" : "", msg ? msg : "" ) );
+				lastDelta = delta;
+			}
+		}
+	}
+private:
+	bool shouldBeVisible;
+	int display;
+	int lastDelta;
+	std::unordered_map<int, std::string> pluralSuffix;
+};
+
 void CG_Rocket_DrawPlayerHealth()
 {
 	static int lastHealth = 0;
@@ -2738,7 +2840,7 @@ static void CG_Rocket_DrawPlayerMomentumBar()
 	team_t        team;
 	bool      unlocked;
 
-	momentumThresholdIterator_t unlockableIter = { -1 };
+	momentumThresholdIterator_t unlockableIter = { -1, 0 };
 
 	// display
 	vec4_t        color;
@@ -2908,9 +3010,10 @@ static INLINE qhandle_t CG_GetUnlockableIcon( int num )
 
 		case UNLT_CLASS:
 			return cg_classes[ index ].classIcon;
-	}
 
-	return 0;
+        default:
+            return 0;
+	}
 }
 
 static void CG_Rocket_DrawPlayerUnlockedItems()
@@ -3089,11 +3192,11 @@ static void CG_Rocket_DrawVote_internal( team_t team )
 
 	s = va( "%sVOTE(%i): %s\n"
 			"    Called by: \"%s\"\n"
-			"    [%s][check]:%i [%s][cross]:%i\n",
+			"    [%s][<span class='material-icon'>&#xe8dc;</span>]:%i [%s][<span class='material-icon'>&#xe8db;</span>]:%i\n",
 			team == TEAM_NONE ? "" : "TEAM", sec, cgs.voteString[ team ],
 			cgs.voteCaller[ team ], yeskey.CString(), cgs.voteYes[ team ], nokey.CString(), cgs.voteNo[ team ] );
 
-	Rocket_SetInnerRML( s, RP_EMOTICONS );
+	Rocket_SetInnerRML( s, 0 );
 }
 
 static void CG_Rocket_DrawVote()
@@ -3166,42 +3269,6 @@ static void CG_Rocket_DrawNumSpawns()
 	}
 
 	Rocket_SetInnerRML( s, 0 );
-}
-
-void CG_Rocket_DrawPredictedRGSRate()
-{
-	playerState_t  *ps = &cg.snap->ps;
-	buildable_t   buildable = ( buildable_t )( ps->stats[ STAT_BUILDABLE ] & SB_BUILDABLE_MASK );
-	char color;
-	int  delta = ps->stats[ STAT_PREDICTION ];
-
-	if ( buildable != BA_H_DRILL && buildable != BA_A_LEECH )
-	{
-		Rocket_SetInnerRML( "", 0 );
-		return;
-	}
-
-	if ( delta < 0 )
-	{
-		color = COLOR_RED;
-	}
-
-	else if ( delta < 10 )
-	{
-		color = COLOR_ORANGE;
-	}
-
-	else if ( delta < 50 )
-	{
-		color = COLOR_YELLOW;
-	}
-
-	else
-	{
-		color = COLOR_GREEN;
-	}
-
-	Rocket_SetInnerRML( va( "^%c%+d%%", color, delta ), RP_QUAKE );
 }
 
 static void CG_Rocket_DrawWarmup()
@@ -3407,7 +3474,6 @@ static const elementRenderCmd_t elementRenderCmdList[] =
 	{ "momentum_bar", &CG_Rocket_DrawPlayerMomentumBar, ELEMENT_BOTH },
 	{ "motd", &CG_Rocket_DrawMOTD, ELEMENT_ALL },
 	{ "numSpawns", &CG_Rocket_DrawNumSpawns, ELEMENT_DEAD },
-	{ "predictedMineEfficiency", &CG_Rocket_DrawPredictedRGSRate, ELEMENT_BOTH },
 	{ "progress_value", &CG_Rocket_DrawProgressValue, ELEMENT_ALL },
 	{ "spawnPos", &CG_Rocket_DrawSpawnQueuePosition, ELEMENT_DEAD },
 	{ "stamina_bolt", &CG_Rocket_DrawStaminaBolt, ELEMENT_HUMANS },
@@ -3440,9 +3506,7 @@ void CG_Rocket_RenderElement( const char *tag )
 #define REGISTER_ELEMENT( tag, clazz ) Rocket::Core::Factory::RegisterElementInstancer( tag, new Rocket::Core::ElementInstancerGeneric< clazz >() )->RemoveReference();
 void CG_Rocket_RegisterElements()
 {
-	int i;
-
-	for ( i = 0; i < elementRenderCmdListCount; i++ )
+	for ( unsigned i = 0; i < elementRenderCmdListCount; i++ )
 	{
 		//Check that the commands are in increasing order so that it can be used by bsearch
 		if ( i != 0 && Q_stricmp( elementRenderCmdList[ i - 1 ].name, elementRenderCmdList[ i ].name ) > 0 )
@@ -3479,4 +3543,5 @@ void CG_Rocket_RegisterElements()
 	REGISTER_ELEMENT( "beacon_info", BeaconInfoElement )
 	REGISTER_ELEMENT( "beacon_name", BeaconNameElement )
 	REGISTER_ELEMENT( "beacon_owner", BeaconOwnerElement )
+	REGISTER_ELEMENT( "predictedMineEfficiency", PredictedMineEfficiencyElement )
 }

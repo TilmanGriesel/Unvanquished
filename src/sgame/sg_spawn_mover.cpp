@@ -34,6 +34,7 @@ Maryland 20850 USA.
 
 #include "sg_local.h"
 #include "sg_spawn.h"
+#include "CBSE.h"
 
 #define DEFAULT_FUNC_TRAIN_SPEED 100
 
@@ -369,7 +370,7 @@ bool G_MoverPush( gentity_t *pusher, vec3_t move, vec3_t amove, gentity_t **obst
 		// bobbing entities are instant-kill and never get blocked
 		if ( pusher->s.pos.trType == TR_SINE || pusher->s.apos.trType == TR_SINE )
 		{
-			G_Damage( check, pusher, pusher, nullptr, nullptr, 99999, 0, MOD_CRUSH );
+			G_Kill(check, pusher, MOD_CRUSH);
 			continue;
 		}
 
@@ -1383,7 +1384,7 @@ void func_door_block( gentity_t *self, gentity_t *other )
 
 	if ( self->damage )
 	{
-		G_Damage( other, self, self, nullptr, nullptr, self->damage, 0, MOD_CRUSH );
+		other->entity->Damage((float)self->damage, self, Util::nullopt, Util::nullopt, 0, MOD_CRUSH);
 	}
 
 	if ( self->spawnflags & 4 )
@@ -1400,7 +1401,7 @@ void func_door_block( gentity_t *self, gentity_t *other )
 Touch_DoorTrigger
 ================
 */
-void door_trigger_touch( gentity_t *self, gentity_t *other, trace_t *trace )
+void door_trigger_touch( gentity_t *self, gentity_t *other, trace_t* )
 {
 	moverState_t groupState;
 
@@ -1850,7 +1851,7 @@ Touch_Plat
 Don't allow to descend if a live player is on it
 ===============
 */
-void Touch_Plat( gentity_t *ent, gentity_t *other, trace_t *trace )
+void Touch_Plat( gentity_t *ent, gentity_t *other, trace_t* )
 {
 	// DONT_WAIT
 	if ( ent->spawnflags & 1 )
@@ -1858,7 +1859,7 @@ void Touch_Plat( gentity_t *ent, gentity_t *other, trace_t *trace )
 		return;
 	}
 
-	if ( !other->client || other->client->ps.stats[ STAT_HEALTH ] <= 0 )
+	if ( !other->client || G_Dead( other ) )
 	{
 		return;
 	}
@@ -1877,7 +1878,7 @@ Touch_PlatCenterTrigger
 If the plat is at the bottom position, start it going up
 ===============
 */
-void Touch_PlatCenterTrigger( gentity_t *ent, gentity_t *other, trace_t *trace )
+void Touch_PlatCenterTrigger( gentity_t *ent, gentity_t *other, trace_t* )
 {
 	if ( !other->client )
 	{
@@ -2009,7 +2010,7 @@ BUTTON
 ===============================================================================
 */
 
-void Touch_Button( gentity_t *ent, gentity_t *other, trace_t *trace )
+void Touch_Button( gentity_t *ent, gentity_t *other, trace_t* )
 {
 	if ( !other->client )
 	{
@@ -2095,6 +2096,9 @@ TRAIN
 
 #define TRAIN_START_OFF   1
 #define TRAIN_BLOCK_STOPS 2
+#define CORNER_PAUSE      1
+
+void Stop_Train( gentity_t *self );
 
 /*
 ===============
@@ -2114,6 +2118,7 @@ void Think_BeginMoving( gentity_t *self )
 Reached_Train
 ===============
 */
+
 void func_train_reached( gentity_t *self )
 {
 	gentity_t *next;
@@ -2173,8 +2178,12 @@ void func_train_reached( gentity_t *self )
 		return;
 	}
 
+	if ( next->spawnflags & CORNER_PAUSE )
+	{
+		Stop_Train( self );
+	}
 	// if there is a "wait" value on the target, don't start moving yet
-	if ( next->config.wait.time )
+	else if ( next->config.wait.time )
 	{
 		self->nextthink = level.time + next->config.wait.time * 1000;
 		self->think = Think_BeginMoving;
@@ -2222,7 +2231,7 @@ void Stop_Train( gentity_t *self )
 Use_Train
 ================
 */
-void func_train_act( gentity_t *ent, gentity_t *other, gentity_t *activator )
+void func_train_act( gentity_t *ent, gentity_t*, gentity_t* )
 {
 	if ( ent->spawnflags & TRAIN_START_OFF )
 	{
@@ -2316,7 +2325,7 @@ void func_train_blocked( gentity_t *self, gentity_t *other )
 			//whatever is blocking the train isn't a client
 
 			//KILL!!1!!!
-			G_Damage( other, self, self, nullptr, nullptr, 10000, 0, MOD_CRUSH );
+			G_Kill(other, self, MOD_CRUSH);
 
 			//buildables need to be handled differently since even when
 			//dealt fatal amounts of damage they won't instantly become non-solid
@@ -2344,7 +2353,7 @@ void func_train_blocked( gentity_t *self, gentity_t *other )
 			return;
 		}
 
-		G_Damage( other, self, self, nullptr, nullptr, 10000, 0, MOD_CRUSH );
+		G_Kill(other, self, MOD_CRUSH);
 	}
 }
 
@@ -2571,7 +2580,7 @@ void SP_func_pendulum( gentity_t *self )
 Use_func_spawn
 ====================
 */
-void func_spawn_act( gentity_t *self, gentity_t *caller, gentity_t *activator )
+void func_spawn_act( gentity_t *self, gentity_t*, gentity_t *activator )
 {
   if( self->r.linked )
     trap_UnlinkEntity( self );
@@ -2615,7 +2624,7 @@ void SP_func_spawn( gentity_t *self )
   self->reset = func_spawn_reset;
 }
 
-void func_destructable_die( gentity_t *self, gentity_t *inflictor, gentity_t *attacker, int mod )
+void func_destructable_die( gentity_t *self, gentity_t*, gentity_t *attacker, int )
 {
 	self->takedamage = false;
 	trap_UnlinkEntity( self );

@@ -1237,6 +1237,7 @@ void CG_GhostBuildable( int buildableInfo )
 	trap_R_AddRefEntityToScene( &ent );
 }
 
+/*
 static void CG_GhostBuildableStatus( int buildableInfo )
 {
 	playerState_t *ps;
@@ -1341,15 +1342,7 @@ static void CG_GhostBuildableStatus( int buildableInfo )
 
 		if ( text )
 		{
-			rectDef_t rect;
 			float     tx = 0, ty = 0;
-			vec4_t    colour;
-
-			rect.x = picX - 128;
-			rect.y = picY - picH / 2;
-			rect.w = 256;
-			rect.h = picH;
-
 			trap_R_SetColor( backColour );
 
 			CG_DrawPic( tx - ( picM - picH ) / 2, ty - ( picM - picH ) / 4 - ( ty - picY ) * 2,
@@ -1357,16 +1350,10 @@ static void CG_GhostBuildableStatus( int buildableInfo )
 			            cgs.media.whiteShader );
 
 			trap_R_SetColor( nullptr );
-
-			colour[0] = bs->foreColor[0];
-			colour[1] = bs->foreColor[1];
-			colour[2] = bs->foreColor[2];
-			colour[3] = bs->foreColor[3];
-
-			// TODO: Draw text
 		}
 	}
 }
+*/
 
 /*
 ==================
@@ -2263,18 +2250,17 @@ CG_DrawBuildableStatus
 */
 void CG_DrawBuildableStatus()
 {
-	int           i;
 	centity_t     *cent;
 	entityState_t *es;
 	int           buildableList[ MAX_ENTITIES_IN_SNAPSHOT ];
-	int           buildables = 0;
+    unsigned      buildables = 0;
 
 	if ( !cg_drawBuildableHealth.integer )
 	{
 		return;
 	}
 
-	for ( i = 0; i < cg.snap->entities.size(); i++ )
+	for ( unsigned i = 0; i < cg.snap->entities.size(); i++ )
 	{
 		cent = &cg_entities[ cg.snap->entities[ i ].number ];
 		es = &cent->currentState;
@@ -2287,7 +2273,7 @@ void CG_DrawBuildableStatus()
 
 	qsort( buildableList, buildables, sizeof( int ), CG_SortDistance );
 
-	for ( i = 0; i < buildables; i++ )
+	for ( unsigned i = 0; i < buildables; i++ )
 	{
 		CG_BuildableStatusDisplay( &cg_entities[ buildableList[ i ] ] );
 	}

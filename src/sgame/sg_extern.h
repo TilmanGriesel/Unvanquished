@@ -37,6 +37,13 @@ extern gentity_t *g_entities;
 extern gclient_t *g_clients;
 #endif
 
+// ---------
+// temporary, compatibility layer between legacy code and CBSE logic
+// ---------
+
+extern damageRegion_t g_damageRegions[ PCL_NUM_CLASSES ][ MAX_DAMAGE_REGIONS ];
+extern int            g_numDamageRegions[ PCL_NUM_CLASSES ];
+
 // -----
 // cvars
 // -----
@@ -163,8 +170,6 @@ extern  vmCvar_t g_privateMessages;
 extern  vmCvar_t g_specChat;
 extern  vmCvar_t g_publicAdminMessages;
 extern  vmCvar_t g_allowTeamOverlay;
-
-extern  vmCvar_t g_censorship;
 
 extern  vmCvar_t g_showKillerHP;
 extern  vmCvar_t g_combatCooldown;

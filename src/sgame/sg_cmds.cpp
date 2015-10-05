@@ -23,6 +23,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "sg_local.h"
 #include "engine/qcommon/q_unicode.h"
+#include "CBSE.h"
 
 #define CMD_CHEAT        0x0001
 #define CMD_CHEAT_TEAM   0x0002 // is a cheat when used on a team
@@ -122,7 +123,7 @@ int G_MatchOnePlayer( const int *plist, int found, char *err, int len )
 				Com_sprintf( line, sizeof( line ), "%2i — %s^7\n",
 				             plist[p], cl->pers.netname );
 
-				if ( strlen( err ) + strlen( line ) > len )
+				if ( strlen( err ) + strlen( line ) > (unsigned) len )
 				{
 					break;
 				}
@@ -417,7 +418,7 @@ void ScoreboardMessage( gentity_t *ent )
 
 		j = strlen( entry );
 
-		if ( stringlength + j >= sizeof( string ) )
+		if ( stringlength + j >= (int) sizeof( string ) )
 		{
 			break;
 		}
@@ -583,7 +584,6 @@ void Cmd_Give_f( gentity_t *ent )
 		}
 
 		G_ModifyBuildPoints( (team_t)ent->client->pers.team, amount );
-		G_MarkBuildPointsMined( (team_t)ent->client->pers.team, amount );
 	}
 
 	// give momentum
@@ -601,8 +601,7 @@ void Cmd_Give_f( gentity_t *ent )
 		G_AddMomentumGeneric( (team_t) ent->client->pers.team, amount );
 	}
 
-	if ( ent->client->ps.stats[ STAT_HEALTH ] <= 0 ||
-			ent->client->sess.spectatorState != SPECTATOR_NOT )
+	if ( G_Dead( ent ) || ent->client->sess.spectatorState != SPECTATOR_NOT )
 	{
 		return;
 	}
@@ -611,13 +610,13 @@ void Cmd_Give_f( gentity_t *ent )
 	{
 		if ( give_all || trap_Argc() < 3 )
 		{
-			ent->health = ent->client->ps.stats[ STAT_MAX_HEALTH ];
+			ent->entity->Heal(1000.0f, nullptr);
 			BG_AddUpgradeToInventory( UP_MEDKIT, ent->client->ps.stats );
 		}
 		else
 		{
-			int amount = atoi( name + strlen("health") );
-			ent->health = Math::Clamp(ent->health + amount, 1, ent->client->ps.stats[ STAT_MAX_HEALTH ]);
+			float amount = atof( name + strlen("health") );
+			ent->entity->Heal(amount, nullptr);
 		}
 	}
 
@@ -748,8 +747,7 @@ void Cmd_Kill_f( gentity_t *ent )
 {
 	if ( g_cheats.integer )
 	{
-		ent->client->ps.stats[ STAT_HEALTH ] = ent->health = 0;
-		G_PlayerDie( ent, ent, ent, MOD_SUICIDE );
+		G_Kill(ent, MOD_SUICIDE);
 	}
 	else
 	{
@@ -801,7 +799,7 @@ void Cmd_Team_f( gentity_t *ent )
 	     g_combatCooldown.integer &&
 	     ent->client->lastCombatTime &&
 	     ent->client->sess.spectatorState == SPECTATOR_NOT &&
-	     ent->health > 0 &&
+	     G_Alive( ent ) &&
 	     ent->client->lastCombatTime + g_combatCooldown.integer * 1000 > level.time )
 	{
 		float remaining = ( ( ent->client->lastCombatTime + g_combatCooldown.integer * 1000 ) - level.time ) / 1000;
@@ -947,197 +945,6 @@ void Cmd_Team_f( gentity_t *ent )
 
 /*
 ==================
-G_CensorString
-==================
-*/
-static char censors[ 20000 ];
-static int  numcensors;
-
-void G_LoadCensors()
-{
-	const char *text_p;
-	char *token;
-	char         text[ 20000 ];
-	char         *term;
-	int          len;
-	fileHandle_t f;
-
-	numcensors = 0;
-
-	if ( !g_censorship.string[ 0 ] )
-	{
-		return;
-	}
-
-	len = trap_FS_FOpenFile( g_censorship.string, &f, FS_READ );
-
-	if ( len < 0 )
-	{
-		Com_Printf( S_ERROR "Censors file %s doesn't exist\n",
-		            g_censorship.string );
-		return;
-	}
-
-	if ( len == 0 || len >= sizeof( text ) - 1 )
-	{
-		trap_FS_FCloseFile( f );
-		Com_Printf( S_ERROR "Censors file %s is %s\n",
-		            g_censorship.string, len == 0 ? "empty" : "too long" );
-		return;
-	}
-
-	trap_FS_Read( text, len, f );
-	trap_FS_FCloseFile( f );
-	text[ len ] = 0;
-
-	term = censors;
-
-	text_p = text;
-
-	while ( 1 )
-	{
-		token = COM_Parse( &text_p );
-
-		if ( !*token || sizeof( censors ) - ( term - censors ) < 4 )
-		{
-			break;
-		}
-
-		Q_strncpyz( term, token, sizeof( censors ) - ( term - censors ) );
-		Q_strlwr( term );
-		term += strlen( term ) + 1;
-
-		if ( sizeof( censors ) - ( term - censors ) == 0 )
-		{
-			break;
-		}
-
-		token = COM_ParseExt( &text_p, false );
-		Q_strncpyz( term, token, sizeof( censors ) - ( term - censors ) );
-		term += strlen( term ) + 1;
-		numcensors++;
-	}
-
-	G_Printf( "Parsed %d string replacements\n", numcensors );
-}
-
-void G_CensorString( char *out, const char *in, int len, gentity_t *ent )
-{
-	const char *s, *m;
-	int        i, ch, bytes;
-
-	if ( !numcensors || G_admin_permission( ent, ADMF_NOCENSORFLOOD ) )
-	{
-		Q_strncpyz( out, in, len );
-		return;
-	}
-
-	len--;
-
-	while ( *in )
-	{
-		if ( Q_IsColorString( in ) )
-		{
-			if ( len < 2 )
-			{
-				break;
-			}
-
-			*out++ = *in++;
-			*out++ = *in++;
-			len -= 2;
-			continue;
-		}
-
-		ch = Q_UTF8_CodePoint( in );
-
-		if ( !Q_Unicode_IsAlphaOrIdeoOrDigit( ch ) )
-		{
-			if ( len < 1 )
-			{
-				break;
-			}
-
-			bytes = Q_UTF8_WidthCP( ch );
-			memcpy( out, in, bytes );
-			out += bytes;
-			in += bytes;
-			len -= bytes;
-			continue;
-		}
-
-		m = censors;
-
-		for ( i = 0; i < numcensors; i++, m++ )
-		{
-			s = in;
-
-			while ( *s && *m )
-			{
-				if ( Q_IsColorString( s ) )
-				{
-					s += 2;
-					continue;
-				}
-
-				ch = Q_UTF8_CodePoint( s );
-				bytes = Q_UTF8_WidthCP( ch );
-
-				if ( !Q_Unicode_IsAlphaOrIdeoOrDigit( ch ) )
-				{
-					s += bytes;
-					continue;
-				}
-
-				if ( Q_Unicode_ToLower( ch ) != Q_UTF8_CodePoint( m ) )
-				{
-					break;
-				}
-
-				s += bytes;
-				m += Q_UTF8_Width( m );
-			}
-
-			// match
-			if ( !*m )
-			{
-				in = s;
-				m++;
-				bytes = strlen( m );
-				bytes = MIN( bytes, len );
-				memcpy( out, m, bytes );
-				out += bytes;
-				len -= bytes;
-				break;
-			}
-			else
-			{
-				m += strlen( m ) + 1;
-				m += strlen( m );
-			}
-		}
-
-		if ( len < 1 )
-		{
-			break;
-		}
-
-		// no match
-		if ( i == numcensors )
-		{
-			bytes = Q_UTF8_WidthCP( ch );
-			memcpy( out, in, bytes );
-			out += bytes;
-			in += bytes;
-			len -= bytes;
-		}
-	}
-
-	*out = 0;
-}
-
-/*
-==================
 G_Say
 ==================
 */
@@ -1198,8 +1005,6 @@ void G_Say( gentity_t *ent, saymode_t mode, const char *chatText )
 {
 	int       j;
 	gentity_t *other;
-	// don't let text be too long for malicious reasons
-	char      text[ MAX_SAY_TEXT ];
 
 	// check if blocked by g_specChat 0
 	if ( ( !g_specChat.integer ) && ( mode != SAY_TEAM ) &&
@@ -1249,13 +1054,11 @@ void G_Say( gentity_t *ent, saymode_t mode, const char *chatText )
 			break;
 	}
 
-	G_CensorString( text, chatText, sizeof( text ), ent );
-
 	// send it to all the appropriate clients
 	for ( j = 0; j < level.maxclients; j++ )
 	{
 		other = &g_entities[ j ];
-		G_SayTo( ent, other, mode, text );
+		G_SayTo( ent, other, mode, chatText );
 	}
 }
 
@@ -1433,7 +1236,6 @@ Cmd_VSay_f
 void Cmd_VSay_f( gentity_t *ent )
 {
 	char           arg[ MAX_TOKEN_CHARS ];
-	char           text[ MAX_TOKEN_CHARS ];
 	voiceChannel_t vchan;
 	voice_t        *voice;
 	voiceCmd_t     *cmd;
@@ -1551,26 +1353,25 @@ void Cmd_VSay_f( gentity_t *ent )
 
 	// optional user supplied text
 	trap_Argv( 2, arg, sizeof( arg ) );
-	G_CensorString( text, arg, sizeof( text ), ent );
 
 	switch ( vchan )
 	{
 		case VOICE_CHAN_ALL:
 			trap_SendServerCommand( -1, va(
 			                          "voice %ld %d %d %d %s\n",
-			                          ( long )( ent - g_entities ), vchan, cmdNum, trackNum, Quote( text ) ) );
+			                          ( long )( ent - g_entities ), vchan, cmdNum, trackNum, Quote( arg ) ) );
 			break;
 
 		case VOICE_CHAN_TEAM:
 			G_TeamCommand( (team_t) ent->client->pers.team, va(
 			                 "voice %ld %d %d %d %s\n",
-			                 ( long )( ent - g_entities ), vchan, cmdNum, trackNum, Quote( text ) ) );
+			                 ( long )( ent - g_entities ), vchan, cmdNum, trackNum, Quote( arg ) ) );
 			break;
 
 		case VOICE_CHAN_LOCAL:
 			G_AreaTeamCommand( ent, va(
 			                 "voice %ld %d %d %d %s\n",
-			                 ( long )( ent - g_entities ), vchan, cmdNum, trackNum, Quote( text ) ) );
+			                 ( long )( ent - g_entities ), vchan, cmdNum, trackNum, Quote( arg ) ) );
 			break;
 
 		default:
@@ -1627,23 +1428,23 @@ static const struct {
 	const vmCvar_t *reasonFlag; // where a reason requirement is configurable (reasonNeeded must be true)
 } voteInfo[] = {
 	// Name           Stop?   Type      Target     Immune   Quorum  Reason  Vote percentage var        Extra
-	{ "kick",         false, V_ANY,    T_PLAYER,  true,   true,  qyes,   &g_kickVotesPercent },
-	{ "spectate",     false, V_ANY,    T_PLAYER,  true,   true,  qyes,   &g_kickVotesPercent },
-	{ "mute",         true,  V_PUBLIC, T_PLAYER,  true,   true,  qyes,   &g_denyVotesPercent },
-	{ "unmute",       true,  V_PUBLIC, T_PLAYER,  false,  true,  qno,    &g_denyVotesPercent },
-	{ "denybuild",    true,  V_TEAM,   T_PLAYER,  true,   true,  qyes,   &g_denyVotesPercent },
-	{ "allowbuild",   true,  V_TEAM,   T_PLAYER,  false,  true,  qno,    &g_denyVotesPercent },
-	{ "extend",       true,  V_PUBLIC, T_OTHER,   false,  false, qno,    &g_extendVotesPercent,      VOTE_REMAIN, &g_extendVotesTime },
-	{ "admitdefeat",  true,  V_TEAM,   T_NONE,    false,  true,  qno,    &g_admitDefeatVotesPercent },
+	{ "kick",         false, V_ANY,    T_PLAYER,  true,   true,  qyes,   &g_kickVotesPercent, VOTE_ALWAYS, nullptr, nullptr },
+	{ "spectate",     false, V_ANY,    T_PLAYER,  true,   true,  qyes,   &g_kickVotesPercent, VOTE_ALWAYS, nullptr, nullptr },
+	{ "mute",         true,  V_PUBLIC, T_PLAYER,  true,   true,  qyes,   &g_denyVotesPercent, VOTE_ALWAYS, nullptr, nullptr },
+	{ "unmute",       true,  V_PUBLIC, T_PLAYER,  false,  true,  qno,    &g_denyVotesPercent, VOTE_ALWAYS, nullptr, nullptr },
+	{ "denybuild",    true,  V_TEAM,   T_PLAYER,  true,   true,  qyes,   &g_denyVotesPercent, VOTE_ALWAYS, nullptr, nullptr },
+	{ "allowbuild",   true,  V_TEAM,   T_PLAYER,  false,  true,  qno,    &g_denyVotesPercent, VOTE_ALWAYS, nullptr, nullptr },
+	{ "extend",       true,  V_PUBLIC, T_OTHER,   false,  false, qno,    &g_extendVotesPercent,      VOTE_REMAIN, &g_extendVotesTime, nullptr },
+	{ "admitdefeat",  true,  V_TEAM,   T_NONE,    false,  true,  qno,    &g_admitDefeatVotesPercent, VOTE_ALWAYS, nullptr, nullptr },
 	{ "draw",         true,  V_PUBLIC, T_NONE,    true,   true,  qyes,   &g_drawVotesPercent,        VOTE_AFTER,  &g_drawVotesAfter,  &g_drawVoteReasonRequired },
-	{ "map_restart",  true,  V_PUBLIC, T_NONE,    false,  true,  qno,    &g_mapVotesPercent },
-	{ "map",          true,  V_PUBLIC, T_OTHER,   false,  true,  qmaybe, &g_mapVotesPercent,         VOTE_BEFORE, &g_mapVotesBefore },
-	{ "layout",       true,  V_PUBLIC, T_OTHER,   false,  true,  qno,    &g_mapVotesPercent,         VOTE_BEFORE, &g_mapVotesBefore },
-	{ "nextmap",      false, V_PUBLIC, T_OTHER,   false,  false, qmaybe, &g_nextMapVotesPercent },
-	{ "poll",         false, V_ANY,    T_NONE,    false,  false, qyes,   &g_pollVotesPercent,        VOTE_NO_AUTO },
-	{ "kickbots",     true,  V_PUBLIC, T_NONE,    false,  false, qno,    &g_kickVotesPercent,        VOTE_ENABLE, &g_botKickVotesAllowedThisMap },
-	{ "spectatebots", false, V_PUBLIC, T_NONE,    false,  false, qno,    &g_kickVotesPercent,        VOTE_ENABLE, &g_botKickVotesAllowedThisMap },
-	{ nullptr }
+	{ "map_restart",  true,  V_PUBLIC, T_NONE,    false,  true,  qno,    &g_mapVotesPercent, VOTE_ALWAYS, nullptr, nullptr },
+	{ "map",          true,  V_PUBLIC, T_OTHER,   false,  true,  qmaybe, &g_mapVotesPercent,         VOTE_BEFORE, &g_mapVotesBefore, nullptr },
+	{ "layout",       true,  V_PUBLIC, T_OTHER,   false,  true,  qno,    &g_mapVotesPercent,         VOTE_BEFORE, &g_mapVotesBefore, nullptr },
+	{ "nextmap",      false, V_PUBLIC, T_OTHER,   false,  false, qmaybe, &g_nextMapVotesPercent, VOTE_ALWAYS, nullptr, nullptr },
+	{ "poll",         false, V_ANY,    T_NONE,    false,  false, qyes,   &g_pollVotesPercent,        VOTE_NO_AUTO, nullptr, nullptr },
+	{ "kickbots",     true,  V_PUBLIC, T_NONE,    false,  false, qno,    &g_kickVotesPercent,        VOTE_ENABLE, &g_botKickVotesAllowedThisMap, nullptr },
+	{ "spectatebots", false, V_PUBLIC, T_NONE,    false,  false, qno,    &g_kickVotesPercent,        VOTE_ENABLE, &g_botKickVotesAllowedThisMap, nullptr },
+	{ }
 	// note: map votes use the reason, if given, as the layout name
 };
 
@@ -2533,7 +2334,7 @@ static bool Cmd_Class_internal( gentity_t *ent, const char *s, bool report )
 		return false;
 	}
 
-	if ( ent->health <= 0 )
+	if ( G_Dead( ent ) )
 	{
 		return true; // dead, can't evolve; no point in trying other classes (if any listed)
 	}
@@ -2614,8 +2415,7 @@ static bool Cmd_Class_internal( gentity_t *ent, const char *s, bool report )
 			{
 				if ( cost >= 0 )
 				{
-					ent->client->pers.evolveHealthFraction = ( float ) ent->client->ps.stats[ STAT_HEALTH ] /
-					    ( float ) BG_Class( currentClass )->health;
+					ent->client->pers.evolveHealthFraction = ent->entity->Get<HealthComponent>()->HealthFraction();
 
 					if ( ent->client->pers.evolveHealthFraction < 0.0f )
 					{
@@ -2737,7 +2537,7 @@ void Cmd_Deconstruct_f( gentity_t *ent )
 	}
 
 	// always let the builder prevent the explosion of a buildable
-	if ( buildable->health <= 0 )
+	if ( G_Dead( buildable ) )
 	{
 		G_RewardAttackers( buildable );
 		G_FreeEntity( buildable );
@@ -2755,7 +2555,7 @@ void Cmd_Deconstruct_f( gentity_t *ent )
 		instant = false;
 	}
 
-	if ( instant && buildable->deconstruct )
+	if ( instant && buildable->entity->Get<BuildableComponent>()->MarkedForDeconstruction() )
 	{
 		if ( !g_cheats.integer )
 		{
@@ -2793,8 +2593,7 @@ void Cmd_Deconstruct_f( gentity_t *ent )
 	else
 	{
 		// toggle mark
-		buildable->deconstruct     = !buildable->deconstruct;
-		buildable->deconstructTime = level.time;
+		buildable->entity->Get<BuildableComponent>()->ToggleDeconstructionMark();
 	}
 }
 
@@ -2807,20 +2606,18 @@ void Cmd_Ignite_f( gentity_t *player )
 {
 	vec3_t    viewOrigin, forward, end;
 	trace_t   trace;
-	gentity_t *target;
 
 	BG_GetClientViewOrigin( &player->client->ps, viewOrigin );
 	AngleVectors( player->client->ps.viewangles, forward, nullptr, nullptr );
-	VectorMA( viewOrigin, 100, forward, end );
+	VectorMA( viewOrigin, 1000, forward, end );
 	trap_Trace( &trace, viewOrigin, nullptr, nullptr, end, player->s.number, MASK_PLAYERSOLID, 0 );
-	target = &g_entities[ trace.entityNum ];
 
-	if ( !target || target->s.eType != ET_BUILDABLE || target->buildableTeam != TEAM_ALIENS )
-	{
-		return;
+	if ( trace.entityNum == ENTITYNUM_WORLD ) {
+		G_SpawnFire( trace.endpos, trace.plane.normal, player );
+	} else {
+		g_entities[ trace.entityNum ].entity->Ignite( player );
 	}
 
-	G_IgniteBuildable( target, player );
 }
 
 /*
@@ -4318,15 +4115,6 @@ void Cmd_MapLog_f( gentity_t *ent )
 
 /*
 =================
-Cmd_Test_f
-=================
-*/
-void Cmd_Test_f( gentity_t *player )
-{
-}
-
-/*
-=================
 Cmd_Damage_f
 
 Deals damage to you (for testing), arguments: [damage] [dx] [dy] [dz]
@@ -4362,8 +4150,9 @@ void Cmd_Damage_f( gentity_t *ent )
 	point[ 0 ] += dx;
 	point[ 1 ] += dy;
 	point[ 2 ] += dz;
-	G_Damage( ent, nullptr, nullptr, nullptr, point, damage,
-	          ( nonloc ? DAMAGE_NO_LOCDAMAGE : 0 ), MOD_TARGET_LASER );
+
+	ent->entity->Damage((float)damage, nullptr, Vec3::Load(point), Util::nullopt,
+	                    nonloc ? DAMAGE_NO_LOCDAMAGE : 0, MOD_TARGET_LASER);
 }
 
 /*
@@ -4546,7 +4335,6 @@ static const commands_t cmds[] =
 	{ "setviewpos",      CMD_CHEAT_TEAM,                      Cmd_SetViewpos_f       },
 	{ "team",            0,                                   Cmd_Team_f             },
 	{ "teamvote",        CMD_TEAM | CMD_INTERMISSION,         Cmd_Vote_f             },
-	{ "test",            CMD_CHEAT,                           Cmd_Test_f             },
 	{ "unignore",        0,                                   Cmd_Ignore_f           },
 	{ "vote",            CMD_INTERMISSION,                    Cmd_Vote_f             },
 	{ "vsay",            CMD_MESSAGE | CMD_INTERMISSION,      Cmd_VSay_f             },
@@ -4645,8 +4433,7 @@ void ClientCommand( int clientNum )
 	}
 
 	if ( (command->cmdFlags & CMD_ALIVE) &&
-	     ( ent->client->ps.stats[ STAT_HEALTH ] <= 0 ||
-	       ent->client->sess.spectatorState != SPECTATOR_NOT ) )
+	     ( G_Dead( ent ) || ent->client->sess.spectatorState != SPECTATOR_NOT ) )
 	{
 		G_TriggerMenu( clientNum, MN_CMD_ALIVE );
 		return;
@@ -4715,7 +4502,6 @@ void Cmd_PrivateMessage_f( gentity_t *ent )
 	int      pids[ MAX_CLIENTS ];
 	char     name[ MAX_NAME_LENGTH ];
 	char     cmd[ 12 ];
-	char     text[ MAX_STRING_CHARS ];
 	char     *msg;
 	char     color;
 	int      i, pcount;
@@ -4746,13 +4532,11 @@ void Cmd_PrivateMessage_f( gentity_t *ent )
 	msg = ConcatArgs( 2 );
 	pcount = G_ClientNumbersFromString( name, pids, MAX_CLIENTS );
 
-	G_CensorString( text, msg, sizeof( text ), ent );
-
 	// send the message
 	for ( i = 0; i < pcount; i++ )
 	{
 		if ( G_SayTo( ent, &g_entities[ pids[ i ] ],
-		              teamonly ? SAY_TPRIVMSG : SAY_PRIVMSG, text ) )
+		              teamonly ? SAY_TPRIVMSG : SAY_PRIVMSG, msg ) )
 		{
 			count++;
 			Q_strcat( recipients, sizeof( recipients ), va( "%s" S_COLOR_WHITE ", ",
@@ -4770,7 +4554,7 @@ void Cmd_PrivateMessage_f( gentity_t *ent )
 	}
 	else
 	{
-		ADMP( va( "%s %c %s", QQ( N_("^$1$Private message: ^7$2$\n") ), color, Quote( text ) ) );
+		ADMP( va( "%s %c %s", QQ( N_("^$1$Private message: ^7$2$\n") ), color, Quote( msg ) ) );
 		// remove trailing ", "
 		recipients[ strlen( recipients ) - 2 ] = '\0';
 		// FIXME PLURAL

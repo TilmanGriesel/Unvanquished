@@ -34,6 +34,7 @@ Maryland 20850 USA.
 
 #include "sg_local.h"
 #include "sg_spawn.h"
+#include "CBSE.h"
 
 void InitEnvAFXEntity( gentity_t *self, bool link )
 {
@@ -52,7 +53,7 @@ void InitEnvAFXEntity( gentity_t *self, bool link )
 	}
 }
 
-void env_afx_toggle( gentity_t *self, gentity_t *other, gentity_t *activator )
+void env_afx_toggle( gentity_t *self, gentity_t*, gentity_t* )
 {
 	if ( self->r.linked )
 	{
@@ -72,7 +73,7 @@ trigger_push
 ==============================================================================
 */
 
-void env_afx_push_touch( gentity_t *self, gentity_t *activator, trace_t *trace )
+void env_afx_push_touch( gentity_t *self, gentity_t *activator, trace_t* )
 {
 	//only triggered by clients
 	if ( !activator || !activator->client )
@@ -118,7 +119,7 @@ trigger_teleport
 ==============================================================================
 */
 
-void env_afx_teleporter_touch( gentity_t *self, gentity_t *other, trace_t *trace )
+void env_afx_teleporter_touch( gentity_t *self, gentity_t *other, trace_t* )
 {
 	gentity_t *dest;
 
@@ -152,7 +153,7 @@ void env_afx_teleporter_touch( gentity_t *self, gentity_t *other, trace_t *trace
 	G_TeleportPlayer( other, dest->s.origin, dest->s.angles, self->config.speed );
 }
 
-void env_afx_teleporter_act( gentity_t *ent, gentity_t *other, gentity_t *activator )
+void env_afx_teleporter_act( gentity_t *ent, gentity_t*, gentity_t* )
 {
 	ent->s.eFlags ^= EF_NODRAW;
 }
@@ -194,14 +195,9 @@ trigger_hurt
 ==============================================================================
 */
 
-void env_afx_hurt_touch( gentity_t *self, gentity_t *other, trace_t *trace )
+void env_afx_hurt_touch( gentity_t *self, gentity_t *other, trace_t* )
 {
 	int dflags;
-
-	if ( !other->takedamage )
-	{
-		return;
-	}
 
 	if ( self->timestamp > level.time )
 	{
@@ -232,7 +228,8 @@ void env_afx_hurt_touch( gentity_t *self, gentity_t *other, trace_t *trace )
 		dflags = 0;
 	}
 
-	G_Damage( other, self, self, nullptr, nullptr, self->damage, dflags, MOD_TRIGGER_HURT );
+	other->entity->Damage((float)self->damage, self, Util::nullopt, Util::nullopt, dflags,
+	                      MOD_TRIGGER_HURT);
 }
 
 void SP_env_afx_hurt( gentity_t *self )
@@ -261,7 +258,7 @@ void env_afx_gravity_reset( gentity_t *self )
 	G_ResetIntField(&self->amount, false, self->config.amount, self->eclass->config.amount, 800);
 }
 
-void env_afx_gravity_touch( gentity_t *ent, gentity_t *other, trace_t *trace )
+void env_afx_gravity_touch( gentity_t *ent, gentity_t *other, trace_t* )
 {
 	//only triggered by clients
 	if ( !other->client )
@@ -297,7 +294,7 @@ trigger_heal
 =================================================================================
 */
 
-void env_afx_heal_touch( gentity_t *self, gentity_t *other, trace_t *trace )
+void env_afx_heal_touch( gentity_t *self, gentity_t *other, trace_t* )
 {
 	if ( !other->client )
 	{
@@ -318,7 +315,7 @@ void env_afx_heal_touch( gentity_t *self, gentity_t *other, trace_t *trace )
 		self->timestamp = level.time + FRAMETIME;
 	}
 
-	G_Heal( other, self->damage );
+	other->entity->Heal((float)self->damage, nullptr);
 }
 
 /*
@@ -349,7 +346,7 @@ trigger_ammo
 
 =================================================================================
 */
-void env_afx_ammo_touch( gentity_t *self, gentity_t *other, trace_t *trace )
+void env_afx_ammo_touch( gentity_t *self, gentity_t *other, trace_t* )
 {
 	int      maxClips, maxAmmo;
 	weapon_t weapon;

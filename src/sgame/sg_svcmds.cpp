@@ -334,7 +334,7 @@ static void Svcmd_LayoutSave_f()
 	s = &str[ 0 ];
 	str2[ 0 ] = 0;
 
-	while ( *s && i < sizeof( str2 ) - 1 )
+	while ( *s && i < (int) sizeof( str2 ) - 1 )
 	{
 		if ( isalnum( *s ) || *s == '-' || *s == '_' )
 		{
@@ -704,7 +704,6 @@ static const struct svcmd
 	{ "humanWin",           false, Svcmd_TeamWin_f              },
 	{ "layoutLoad",         false, Svcmd_LayoutLoad_f           },
 	{ "layoutSave",         false, Svcmd_LayoutSave_f           },
-	{ "loadcensors",        false, G_LoadCensors                },
 	{ "m",                  true,  Svcmd_MessageWrapper         },
 	{ "maplog",             true,  Svcmd_MapLogWrapper          },
 	{ "mapRotation",        false, Svcmd_MapRotation_f          },
@@ -762,9 +761,7 @@ void CompleteCommand(int)
 
 void G_RegisterCommands()
 {
-	int i;
-
-	for ( i = 0; i < ARRAY_LEN( svcmds ); i++ )
+	for ( unsigned i = 0; i < ARRAY_LEN( svcmds ); i++ )
 	{
 		if ( svcmds[ i ].conflicts && level.inClient )
 		{
@@ -779,9 +776,7 @@ void G_RegisterCommands()
 
 void G_UnregisterCommands()
 {
-	int i;
-
-	for ( i = 0; i < ARRAY_LEN( svcmds ); i++ )
+	for ( unsigned i = 0; i < ARRAY_LEN( svcmds ); i++ )
 	{
 		if ( svcmds[ i ].conflicts && level.inClient )
 		{

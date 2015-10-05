@@ -34,6 +34,7 @@ Maryland 20850 USA.
 
 #include "sg_local.h"
 #include "sg_spawn.h"
+#include "CBSE.h"
 
 /*
 =================================================================================
@@ -42,7 +43,7 @@ target_print
 
 =================================================================================
 */
-void target_print_act( gentity_t *self, gentity_t *other, gentity_t *activator )
+void target_print_act( gentity_t *self, gentity_t*, gentity_t *activator )
 {
 	if ( self->spawnflags & 4 )
 	{
@@ -85,7 +86,7 @@ target_push
 =================================================================================
 */
 
-void target_push_act( gentity_t *self, gentity_t *other, gentity_t *activator )
+void target_push_act( gentity_t *self, gentity_t*, gentity_t *activator )
 {
 	if ( !activator || !activator->client )
 	{
@@ -123,7 +124,7 @@ target_teleporter
 
 =================================================================================
 */
-void target_teleporter_act( gentity_t *self, gentity_t *other, gentity_t *activator )
+void target_teleporter_act( gentity_t *self, gentity_t*, gentity_t *activator )
 {
 	gentity_t *dest;
 
@@ -155,15 +156,16 @@ target_hurt
 
 =================================================================================
 */
-void target_hurt_act( gentity_t *self, gentity_t *other, gentity_t *activator )
+void target_hurt_act( gentity_t *self, gentity_t*, gentity_t *activator )
 {
 	// hurt the activator
-	if ( !activator || !activator->takedamage )
+	if ( !activator )
 	{
 		return;
 	}
 
-	G_Damage( activator, self, self, nullptr, nullptr, self->damage, 0, MOD_TRIGGER_HURT );
+	activator->entity->Damage((float)self->damage, self, Util::nullopt, Util::nullopt, 0,
+	                          MOD_TRIGGER_HURT);
 }
 
 void SP_target_hurt( gentity_t *self )

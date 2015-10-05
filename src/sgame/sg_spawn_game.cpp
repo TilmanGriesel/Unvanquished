@@ -34,6 +34,7 @@ Maryland 20850 USA.
 
 #include "sg_local.h"
 #include "sg_spawn.h"
+#include "CBSE.h"
 
 /*
 =================================================================================
@@ -43,7 +44,7 @@ game_score
 =================================================================================
 */
 
-void game_score_act( gentity_t *self, gentity_t *caller, gentity_t *activator )
+void game_score_act( gentity_t *self, gentity_t*, gentity_t *activator )
 {
 	if ( !activator )
 	{
@@ -77,7 +78,7 @@ game_end
 
 =================================================================================
 */
-void game_end_act( gentity_t *self, gentity_t *caller, gentity_t *activator )
+void game_end_act( gentity_t *self, gentity_t*, gentity_t* )
 {
 	if ( level.unconditionalWin == TEAM_NONE ) // only if not yet triggered
 	{
@@ -107,7 +108,7 @@ game_funds
 =================================================================================
 */
 
-void game_funds_act( gentity_t *self, gentity_t *caller, gentity_t *activator )
+void game_funds_act( gentity_t *self, gentity_t*, gentity_t *activator )
 {
 	if( !activator )
 	{
@@ -136,14 +137,14 @@ game_kill
 
 =================================================================================
 */
-void game_kill_act( gentity_t *self, gentity_t *other, gentity_t *activator )
+void game_kill_act( gentity_t*, gentity_t*, gentity_t *activator )
 {
 	if ( !activator )
 	{
 		return;
 	}
 
-	G_Damage( activator, nullptr, nullptr, nullptr, nullptr, 100000, DAMAGE_NO_PROTECTION, MOD_TELEFRAG );
+	G_Kill(activator, MOD_TELEFRAG);
 }
 
 void SP_game_kill( gentity_t *self )
